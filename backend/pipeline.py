@@ -351,15 +351,11 @@ def _run_pipeline_deep(
 
     report("Isolating items…", 5)
     try:
-        # 1. Call the correct function
-        # 2. Unpack the tuple directly into two variables
         annotated_img_str, crop_paths = segment_image_via_hf(str(image_path))
     except SegmentServiceUnavailable:
         raise
-
-    # 3. Map them to the variables your code already expects
+        
     annotated_src = Path(annotated_img_str)
-    # crop_paths is already a list of strings, so it's ready to go!
 
     annotated_dst = output_dir / f"annotated_{image_path.stem}_{uuid.uuid4().hex[:8]}{annotated_src.suffix}"
     shutil.copy2(annotated_src, annotated_dst)
@@ -440,3 +436,4 @@ def _run_pipeline_deep(
         "annotated_image_path": str(annotated_dst),
         "raw_response": f"Deep Scan detected: {', '.join(all_labels)}",
     }
+
