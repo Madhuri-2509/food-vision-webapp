@@ -3,23 +3,17 @@ from PIL import Image
 import shutil
 import os
 
-# The confirmed Space URL
 HF_SPACE_URL = "project-desk/food-segmentation-engine"
 
 class SegmentServiceUnavailable(Exception):
     pass
 
 def segment_image_via_hf(local_image_path: str):
-    """
-    Service Contract:
-    Input: Local image path via handle_file()
-    Output: (annotated_image_path, list_of_crop_paths)
-    """
-    print(f"☁️ Connecting to Hugging Face Space: {HF_SPACE_URL}...")
+
+    print(f"Connecting to Hugging Face Space: {HF_SPACE_URL}...")
 
     compressed_path = None
     try:
-        # --- THE SPEED FIX: Compress the image before sending! ---
         base, ext = os.path.splitext(local_image_path)
         compressed_path = f"{base}_compressed.jpg"
         with Image.open(local_image_path) as img:
@@ -28,27 +22,21 @@ def segment_image_via_hf(local_image_path: str):
                 img = img.convert("RGB")
             img.save(compressed_path, format="JPEG", quality=85)
 
-        # Connect to your specific space
         client = Client(HF_SPACE_URL)
 
-        # FIX 1 & 2: Use handle_file() and the correct /process_image endpoint
         result = client.predict(
             image_path=handle_file(compressed_path),
             api_name="/process_image",
         )
         
-        # FIX 3: Safely extract the file paths from the Gradio dictionaries
-        # 1. Extract the annotated image path
         if isinstance(result[0], dict):
             annotated_tmp_path = result[0].get('path')
         else:
             annotated_tmp_path = result[0]
             
-        # 2. Extract the cropped image paths
         raw_crops = result[1]
         clean_crops = []
         
-        # Handle the crops whether Gradio returns a list of dicts, strings, or a single string
         if isinstance(raw_crops, (list, tuple)):
             for c in raw_crops:
                 if isinstance(c, dict):
@@ -62,13 +50,11 @@ def segment_image_via_hf(local_image_path: str):
             print("⚠️ No food items detected by Grounded-SAM.")
             return annotated_tmp_path, []
 
-        # THE FIX: Bulletproof path handling
-        # 1. Check if Hugging Face actually gave us a real file
+
         if not annotated_tmp_path or not os.path.exists(annotated_tmp_path):
             print(f"❌ Error: Gradio temp file missing! Path: {annotated_tmp_path}")
             raise SegmentServiceUnavailable("Image generation failed on cloud.")
 
-        # 2. Save next to the source image (we know that dir exists)
         filename = os.path.basename(str(local_image_path))
         base_dir = os.path.dirname(os.path.abspath(local_image_path))
         annotated_final_path = os.path.join(base_dir, f"annotated_{filename}")
@@ -81,10 +67,8 @@ def segment_image_via_hf(local_image_path: str):
 
     except Exception as e:
         print(f"❌ HF Segmentation API Error: {e}")
-        # The exact 503 fallback rule we established
         raise SegmentServiceUnavailable("Deep Scan engine is currently unavailable. Please use Fast Scan.")
     finally:
-        # Clean up temp compressed file
         if compressed_path and os.path.exists(compressed_path):
             try:
                 os.remove(compressed_path)
