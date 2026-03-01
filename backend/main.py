@@ -99,6 +99,7 @@ def _build_upload_payload(path: Path, result: dict) -> dict:
         "totals": totals,
         "items": response_items,
         "regions": result.get("regions", []),
+        "original_label": result.get("original_label"),
     }
     if result.get("annotated_image_path"):
         payload["annotated_image_url"] = f"/api/uploads/{Path(result['annotated_image_path']).name}"

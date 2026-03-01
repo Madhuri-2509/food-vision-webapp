@@ -247,7 +247,7 @@ export default function App() {
     }
   }
 
-  const isNonFood = result && (result.items?.length === 0 || result.original_label === 'Non-Food Item Detected')
+  const isNonFood = result && (!(result.items?.length) || result.original_label === 'Non-Food Item Detected' || result.original_label === 'No food segments detected' || result.original_label === 'No edible food detected in segments')
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col relative overflow-hidden">
@@ -280,34 +280,38 @@ export default function App() {
 
       <div className="relative z-10 flex flex-1 min-h-0 flex overflow-hidden">
         <main className="flex-1 min-w-0 overflow-y-auto p-6 max-w-4xl mx-auto w-full space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <span className="text-sm font-medium text-slate-600">Scan mode</span>
-            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
-              <button
-                type="button"
-                onClick={() => setScanMode('fast')}
-                disabled={loading}
-                className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${scanMode === 'fast' ? 'bg-emerald-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}
-              >
-                Fast Scan (~3s)
-              </button>
-              <button
-                type="button"
-                onClick={() => setScanMode('deep')}
-                disabled={loading}
-                className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${scanMode === 'deep' ? 'bg-emerald-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}
-              >
-                Deep Scan (~60s)
-              </button>
-            </div>
-          </div>
-          <ImageUploader
-            onUpload={handleUpload}
-            loading={loading}
-            scanMode={scanMode}
-            loadingAnimation={loading && !result ? (scanMode === 'deep' ? sandyLoadingAnimation : LOADING_ANIMATIONS[detectionCountRef.current % LOADING_ANIMATIONS.length]) : null}
-            loadingAnimationKey={detectionCountRef.current}
-          />
+          {!result && (
+            <>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <span className="text-sm font-medium text-slate-600">Scan mode</span>
+                <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setScanMode('fast')}
+                    disabled={loading}
+                    className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${scanMode === 'fast' ? 'bg-emerald-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    Fast Scan (~3s)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScanMode('deep')}
+                    disabled={loading}
+                    className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${scanMode === 'deep' ? 'bg-emerald-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    Deep Scan (~60s)
+                  </button>
+                </div>
+              </div>
+              <ImageUploader
+                onUpload={handleUpload}
+                loading={loading}
+                scanMode={scanMode}
+                loadingAnimation={loading ? (scanMode === 'deep' ? sandyLoadingAnimation : LOADING_ANIMATIONS[detectionCountRef.current % LOADING_ANIMATIONS.length]) : null}
+                loadingAnimationKey={detectionCountRef.current}
+              />
+            </>
+          )}
           {error && (
             <div className="rounded-lg bg-red-100 text-red-800 px-4 py-3 text-sm sm:text-base">
               {error}
@@ -417,6 +421,9 @@ export default function App() {
                           Edit label
                         </button>
                       )}
+                      {isNonFood && (
+                        <span className="text-sm text-amber-700 font-medium">No food detected</span>
+                      )}
                     </div>
                   </div>
                   <div className="p-5 space-y-6">
@@ -450,35 +457,29 @@ export default function App() {
                     )}
 
                     {isNonFood && (
-                      <div className="bg-amber-50/90 border border-amber-200 rounded-xl p-5 shadow-sm">
-                        <div className="flex items-center gap-2 mb-3">
-                          <h3 className="text-lg font-bold text-amber-800">No edible food detected</h3>
-                        </div>
-                        <p className="text-amber-700/90 text-sm mb-4">
-                          Our AI didn&apos;t find any recognizable food in this image.
+                      <>
+                        <p className="text-slate-600 text-sm">
+                          No food detected in this image. If it&apos;s food, tell us what it is to get macro estimates.
                         </p>
-                        <div className="bg-white/80 p-4 rounded-lg border border-amber-200/80">
-                          <p className="text-sm text-slate-600 mb-3 font-medium">Think it&apos;s food? Tell us what it is:</p>
-                          <div className="flex gap-2 flex-wrap">
-                            <input
-                              type="text"
-                              value={overrideLabel}
-                              onChange={(e) => setOverrideLabel(e.target.value)}
-                              placeholder="e.g. idli, sambar"
-                              className="flex-1 min-w-[140px] border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 text-slate-800"
-                              disabled={correcting}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleForceCorrect(overrideLabel)}
-                              disabled={correcting || !overrideLabel?.trim()}
-                              className="bg-amber-600 text-white px-4 py-2.5 rounded-lg text-sm font-semibold hover:bg-amber-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
-                            >
-                              {correcting ? 'Saving…' : 'Force correct'}
-                            </button>
-                          </div>
+                        <div className="flex gap-2 flex-wrap items-center p-4 rounded-xl bg-amber-50/80 border border-amber-200/80">
+                          <input
+                            type="text"
+                            value={overrideLabel}
+                            onChange={(e) => setOverrideLabel(e.target.value)}
+                            placeholder="e.g. idli, sambar"
+                            className="flex-1 min-w-[140px] border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 text-slate-800"
+                            disabled={correcting}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleForceCorrect(overrideLabel)}
+                            disabled={correcting || !overrideLabel?.trim()}
+                            className="rounded-lg bg-amber-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-amber-700 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+                          >
+                            {correcting ? 'Saving…' : 'Correct label'}
+                          </button>
                         </div>
-                      </div>
+                      </>
                     )}
 
                     {!isNonFood && result.items?.length > 0 && (
