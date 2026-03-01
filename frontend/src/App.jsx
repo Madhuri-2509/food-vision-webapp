@@ -21,6 +21,30 @@ const LOADING_ANIMATIONS = [
   catPlayingAnimation,
 ]
 
+const DEEP_SCAN_TIPS = [
+  'Tip: Better lighting improves accuracy.',
+  'We use USDA data for nutrition info.',
+  'Deep scan works best with clear, top-down photos.',
+  'Each item is identified and looked up separately.',
+  'You can correct any item name after the scan.',
+]
+
+function getDeepScanStageInfo(stage) {
+  const t = (stage || '').toLowerCase()
+  if (t.includes('isolat')) return { step: 1, stepLabel: 'Step 1 of 2', headline: 'Finding every item on your plate', subtext: 'Drawing boxes around each food item.', stepDone: null }
+  if (t.includes('identif') || t.includes('look')) return { step: 2, stepLabel: 'Step 2 of 2', headline: 'Naming each item and looking up nutrition', subtext: 'Fetching data for each food we found.', stepDone: 'Step 1 complete' }
+  if (t.includes('done')) return { step: 2, stepLabel: 'Step 2 of 2', headline: 'Finishing up', subtext: 'Almost there.', stepDone: 'Step 1 complete' }
+  return { step: 1, stepLabel: 'Step 1 of 2', headline: 'Preparing your scan', subtext: 'Getting everything ready.', stepDone: null }
+}
+
+const DEEP_SCAN_ESTIMATE_SEC = 120
+
+function formatElapsed(seconds) {
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
 function SegmentationOverlay({ imageUrl, regions }) {
   const [size, setSize] = useState({ w: 1, h: 1 })
   const onLoad = useCallback((e) => {
@@ -69,18 +93,37 @@ export default function App() {
   const [progress, setProgress] = useState(0)
   const [stage, setStage] = useState('')
   const [scanMode, setScanMode] = useState('fast')
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [tipIndex, setTipIndex] = useState(0)
   const detectionCountRef = useRef(0)
+  const toastLoadingIdRef = useRef(null)
 
   const SSE_TIMEOUT_MS = scanMode === 'deep' ? 150000 : 90000
+
+  useEffect(() => {
+    if (!loading) return
+    setElapsedSeconds(0)
+    const interval = setInterval(() => setElapsedSeconds((s) => s + 1), 1000)
+    return () => clearInterval(interval)
+  }, [loading])
+
+  useEffect(() => {
+    if (!loading || scanMode !== 'deep') return
+    const interval = setInterval(() => setTipIndex((i) => (i + 1) % DEEP_SCAN_TIPS.length), 8000)
+    return () => clearInterval(interval)
+  }, [loading, scanMode])
 
   const handleUpload = async (file) => {
     detectionCountRef.current += 1
     const loadingToastId = toast.loading(scanMode === 'deep' ? 'Deep scanning…' : 'Analyzing image…')
+    toastLoadingIdRef.current = loadingToastId
     setLoading(true)
     setError(null)
     setResult(null)
     setProgress(0)
     setStage('Uploading…')
+    setElapsedSeconds(0)
+    setTipIndex(0)
 
     const formData = new FormData()
     formData.append('file', file)
@@ -147,8 +190,14 @@ export default function App() {
       try {
         const d = JSON.parse(event.data)
         if (d.type === 'progress') {
-          setStage(d.stage ?? '')
-          setProgress(typeof d.progress === 'number' ? d.progress : 0)
+          const newStage = d.stage ?? ''
+          const newProgress = typeof d.progress === 'number' ? d.progress : 0
+          setStage(newStage)
+          setProgress(newProgress)
+          if (scanMode === 'deep' && toastLoadingIdRef.current) {
+            const msg = newStage.includes('Isolat') ? 'Finding each item on your plate…' : newStage.includes('Identif') || newStage.includes('Look') ? 'Naming each item & looking up nutrition…' : newStage || 'Deep scanning…'
+            toast.loading(msg, { id: toastLoadingIdRef.current })
+          }
         } else if (d.type === 'result') {
           clearTimeout(timeoutId)
           eventSource.close()
@@ -238,7 +287,12 @@ export default function App() {
         throw new Error(err.detail || res.statusText || 'Correct failed')
       }
       const data = await res.json()
-      setResult((prev) => ({ ...prev, totals: data.totals, items: data.items }))
+      setResult((prev) => ({
+        ...prev,
+        totals: data.totals,
+        items: data.items,
+        original_label: data.items?.[0]?.name ?? prev.original_label,
+      }))
       setOverrideLabel('')
     } catch (e) {
       setError(e.message)
@@ -319,17 +373,98 @@ export default function App() {
           )}
 
           {loading && !result && (
-            <div className="rounded-xl bg-white shadow p-5 sm:p-6 space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-600 font-medium">{stage || 'Analyzing…'}</span>
-                <span className="text-slate-500 tabular-nums">{Math.round(progress)}%</span>
-              </div>
-              <div className="h-2 w-full rounded-full bg-slate-200 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-[width] duration-150 ease-out"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
+            <div className="rounded-xl bg-white shadow p-5 sm:p-6 space-y-4">
+              {scanMode === 'deep' ? (
+                <>
+                  <div>
+                    <p className="text-base font-medium text-slate-700 flex items-center gap-0.5 flex-wrap">
+                      {getDeepScanStageInfo(stage).headline}
+                      <span className="inline-flex gap-0.5 ml-0.5" aria-hidden>
+                        <span className="animate-dots inline-block" style={{ animationDelay: '0s' }}>.</span>
+                        <span className="animate-dots inline-block" style={{ animationDelay: '0.2s' }}>.</span>
+                        <span className="animate-dots inline-block" style={{ animationDelay: '0.4s' }}>.</span>
+                      </span>
+                    </p>
+                    {getDeepScanStageInfo(stage).stepDone && (
+                      <p className="text-xs text-emerald-600 font-medium mt-1">✓ {getDeepScanStageInfo(stage).stepDone}</p>
+                    )}
+                  </div>
+                  <div className="flex w-full gap-0.5 rounded-full overflow-hidden bg-slate-200">
+                    <motion.div
+                      className="h-2 flex-1 min-w-0 rounded-l-full overflow-hidden relative"
+                      initial={false}
+                      animate={{ opacity: 1 }}
+                    >
+                      <div className="absolute inset-0 bg-slate-200" />
+                      <motion.div
+                        className="h-full rounded-l-full bg-gradient-to-r from-emerald-500 to-emerald-400 relative overflow-hidden"
+                        initial={false}
+                        animate={{ width: `${Math.min(100, (progress / 40) * 100)}%` }}
+                        transition={{ type: 'tween', duration: 0.8, ease: 'easeOut' }}
+                      >
+                        <span className="absolute inset-0 bg-[length:200%_100%] bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" aria-hidden />
+                      </motion.div>
+                    </motion.div>
+                    <motion.div
+                      className="h-2 flex-[1.5] min-w-0 rounded-r-full overflow-hidden relative"
+                      initial={false}
+                      animate={{ opacity: 1 }}
+                    >
+                      <div className="absolute inset-0 bg-slate-200" />
+                      <motion.div
+                        className="h-full rounded-r-full bg-gradient-to-r from-teal-400 to-teal-500 relative overflow-hidden"
+                        initial={false}
+                        animate={{ width: `${progress <= 40 ? 0 : Math.min(100, ((progress - 40) / 60) * 100)}%` }}
+                        transition={{ type: 'tween', duration: 0.8, ease: 'easeOut' }}
+                      >
+                        <span className="absolute inset-0 bg-[length:200%_100%] bg-gradient-to-r from-transparent via-white/25 to-transparent animate-shimmer" aria-hidden />
+                      </motion.div>
+                    </motion.div>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    {getDeepScanStageInfo(stage).subtext}
+                  </p>
+                  <div className="rounded-lg bg-emerald-50/80 border border-emerald-100 p-4">
+                    <p className="text-xs font-medium text-emerald-800/90 mb-1">While we scan</p>
+                    <p className="text-sm text-slate-700">
+                      {DEEP_SCAN_TIPS[tipIndex]}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                    <span className="text-xs text-slate-400 tabular-nums">
+                      {getDeepScanStageInfo(stage).stepLabel}
+                    </span>
+                    <span className="text-xs text-slate-400 tabular-nums">
+                      {Math.max(0, DEEP_SCAN_ESTIMATE_SEC - elapsedSeconds) > 0
+                        ? `About ${formatElapsed(Math.max(0, DEEP_SCAN_ESTIMATE_SEC - elapsedSeconds))} left`
+                        : 'Almost there…'}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <span className="text-slate-600 font-medium">{stage || 'Analyzing…'}</span>
+                    <motion.span
+                      key={Math.round(progress)}
+                      className="text-slate-500 tabular-nums font-medium"
+                      initial={false}
+                      animate={{ opacity: [0.6, 1] }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      {Math.round(progress)}%
+                    </motion.span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-slate-200 overflow-hidden">
+                    <motion.div
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 relative overflow-hidden"
+                      initial={false}
+                      animate={{ width: `${progress}%` }}
+                      transition={{ type: 'tween', duration: 0.5, ease: 'easeOut' }}
+                    />
+                  </div>
+                </>
+              )}
             </div>
           )}
 
